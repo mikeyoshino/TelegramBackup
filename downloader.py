@@ -58,6 +58,10 @@ PARALLEL_UPLOADS = 3
 # --- CHUNK SETTINGS ---
 CHUNK_SIZE = 100  # Download and upload this many messages/albums at a time
 
+# Delay between each sequential send in Phase 2 (seconds)
+# Helps avoid connection resets when Telegram gets too many rapid requests
+UPLOAD_DELAY = 1.5
+
 def get_peer_id(link):
     """
     Attempts to extract channel ID, optional topic ID, and optional message ID from a link.
@@ -136,21 +140,42 @@ async def upload_chunk(client, dest_entity, dest_topic_id, ordered_groups, group
     uploaded_refs = {}
     
     async def pre_upload_group(group_id, files, caption, folder):
-        """Pre-upload all files for a group to Telegram's servers."""
+        """Pre-upload all files for a group to Telegram's servers (with retry)."""
         async with semaphore:
             print(f"  [PRE-UPLOAD] Group {group_id} ({len(files)} files)...")
-            try:
-                refs = []
-                for filepath in files:
-                    size_mb = os.path.getsize(filepath) / (1024 * 1024)
-                    print(f"    → Uploading {os.path.basename(filepath)} ({size_mb:.1f}MB)...")
-                    ref = await client.upload_file(filepath)
-                    refs.append((ref, filepath))
-                uploaded_refs[group_id] = refs
-                print(f"  [PRE-UPLOAD] ✓ Group {group_id} ready to send!")
-            except Exception as e:
-                print(f"  [PRE-UPLOAD] ✗ Group {group_id} failed: {e}")
-                uploaded_refs[group_id] = None
+            refs = []
+            for filepath in files:
+                size_mb = os.path.getsize(filepath) / (1024 * 1024)
+                print(f"    → Uploading {os.path.basename(filepath)} ({size_mb:.1f}MB)...")
+                
+                # Retry loop with exponential backoff for connection resets
+                max_retries = 5
+                for attempt in range(max_retries):
+                    try:
+                        ref = await client.upload_file(filepath)
+                        refs.append((ref, filepath))
+                        break  # success
+                    except Exception as e:
+                        err = str(e)
+                        is_connection_reset = "104" in err or "connection reset" in err.lower() or "connection" in err.lower()
+                        is_flood = "429" in err or "flood" in err.lower()
+                        
+                        if attempt < max_retries - 1:
+                            if is_flood:
+                                wait = 30
+                            elif is_connection_reset:
+                                wait = 5 * (attempt + 1)  # 5s, 10s, 15s, 20s
+                            else:
+                                wait = 3
+                            print(f"    ⚠️ Upload failed (attempt {attempt+1}/{max_retries}): {e} — retrying in {wait}s...")
+                            await asyncio.sleep(wait)
+                        else:
+                            print(f"    ✗ Upload failed after {max_retries} attempts: {e}")
+                            uploaded_refs[group_id] = None
+                            return
+            
+            uploaded_refs[group_id] = refs
+            print(f"  [PRE-UPLOAD] ✓ Group {group_id} ready to send!")
     
     tasks = [pre_upload_group(gid, files, caption, folder) for gid, files, caption, folder in groups_to_upload]
     await asyncio.gather(*tasks)
@@ -180,6 +205,7 @@ async def upload_chunk(client, dest_entity, dest_topic_id, ordered_groups, group
                 reply_to=dest_topic_id
             )
             print(f"  [SEND] ✓ Sent successfully!")
+            await asyncio.sleep(UPLOAD_DELAY)  # Small delay to avoid connection resets
             
             if DELETE_AFTER_UPLOAD:
                 try:
