@@ -28,13 +28,13 @@ API_HASH = 'b28bafb4abe937cff6ea973970421d96'
 
 # --- SOURCE SETTINGS ---
 CHANNEL_LINK = 'https://t.me/c/2298649486'
-TOPIC_ID = 49114
+TOPIC_ID = 1
 START_FROM_MESSAGE_ID = 1  
 
 # --- DESTINATION SETTINGS ---
 UPLOAD_TO_DESTINATION = True
 DEST_CHANNEL_LINK = 'https://t.me/c/3863897481' # REPLACE THIS with your destination channel link
-DEST_TOPIC_ID = 7 # Set to topic number if uploading to a specific topic
+DEST_TOPIC_ID = 2 # Set to topic number if uploading to a specific topic
 DELETE_AFTER_UPLOAD = True # Delete downloaded folders after uploading
 
 # --- FILTER OPTIONS ---
@@ -46,7 +46,7 @@ DOWNLOAD_DOCUMENTS = False
 DOWNLOAD_DIR = 'downloads'
 
 # Limit for testing
-GROUP_LIMIT = 20
+GROUP_LIMIT = 100000
 
 # Parallel downloads
 PARALLEL_DOWNLOADS = 5
@@ -150,10 +150,23 @@ async def upload_chunk(client, dest_entity, dest_topic_id, ordered_groups, group
             async def upload_one(index, filepath):
                 size_mb = os.path.getsize(filepath) / (1024 * 1024)
                 print(f"    → Uploading {os.path.basename(filepath)} ({size_mb:.1f}MB)...")
+                
+                start_time = time.time()
+                last_update = [0]
+                
+                def upload_progress(current, total):
+                    now = time.time()
+                    if now - last_update[0] >= 2.0:
+                        elapsed = now - start_time
+                        speed = (current / (1024 * 1024)) / elapsed if elapsed > 0 else 0
+                        percent = (current / total) * 100 if total > 0 else 0
+                        print(f"    ↑ {percent:.0f}% ({current/(1024*1024):.1f}/{size_mb:.1f}MB) @ {speed:.1f} MB/s - {os.path.basename(filepath)}")
+                        last_update[0] = now
+                
                 max_retries = 5
                 for attempt in range(max_retries):
                     try:
-                        ref = await client.upload_file(filepath)
+                        ref = await client.upload_file(filepath, progress_callback=upload_progress)
                         refs_by_index[index] = (ref, filepath)
                         return
                     except Exception as e:
@@ -342,25 +355,29 @@ async def main():
                     last_update = [0]
                     start_time = time.time()
                     
+                    start_time = time.time()
+                    
                     def progress_callback(current, total):
                         now = time.time()
                         if now - last_update[0] >= 2.0:
+                            elapsed = now - start_time
+                            speed = (current / (1024 * 1024)) / elapsed if elapsed > 0 else 0
                             percent = (current / total) * 100 if total > 0 else 0
                             mb_current = current / (1024 * 1024)
                             mb_total = total / (1024 * 1024)
-                            print(f"  [{worker_id}] {percent:.0f}% ({mb_current:.1f}/{mb_total:.1f}MB)")
+                            print(f"  [{worker_id}] {percent:.0f}% ({mb_current:.1f}/{mb_total:.1f}MB) @ {speed:.1f} MB/s")
                             last_update[0] = now
                     
                     max_retries = 5
                     path = None
                     for attempt in range(max_retries):
                         try:
-                            # Only use FastTelethon for large files (>20MB)
+                            # Only use FastTelethon for files over 5MB
                             # Small files use the standard downloader which has no invalid limit issues
                             use_fast = (
                                 FAST_DOWNLOAD_AVAILABLE
                                 and isinstance(message.media, MessageMediaDocument)
-                                and file_size > 20 * 1024 * 1024  # >20MB
+                                and file_size > 5 * 1024 * 1024  # >5MB
                             )
                             if use_fast:
                                 doc = message.media.document
@@ -378,7 +395,7 @@ async def main():
                                     original_filename = f"{message.id}{file_ext}"
                                 
                                 filepath = os.path.join(folder_name, original_filename)
-                                path = await fast_download(client, message.media.document, filepath, workers=2, progress_callback=progress_callback)
+                                path = await fast_download(client, message.media.document, filepath, workers=8, progress_callback=progress_callback)
                             else:
                                 path = await client.download_media(message, file=folder_name, progress_callback=progress_callback)
                             break  # success - exit retry loop

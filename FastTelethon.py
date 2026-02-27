@@ -19,8 +19,8 @@ from telethon.tl.types import (
     InputPhotoFileLocation, Photo, TypeInputFileLocation
 )
 
-DEFAULT_PART_SIZE = 1024 * 1024  # 1MB chunks (required by Telegram for large files)
-WORKER_COUNT = 16  # Number of parallel connections (increased for Premium speeds)
+DEFAULT_PART_SIZE = 512 * 1024  # 512KB chunks - more chunks = more parallelism
+WORKER_COUNT = 8  # Parallel download workers per file
 
 
 def get_input_location(file: Union[Document, Photo]) -> TypeInputFileLocation:
