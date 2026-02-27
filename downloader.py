@@ -363,7 +363,7 @@ async def main():
                                     original_filename = f"{message.id}{file_ext}"
                                 
                                 filepath = os.path.join(folder_name, original_filename)
-                                path = await fast_download(client, message.media.document, filepath, workers=4, progress_callback=progress_callback)
+                                path = await fast_download(client, message.media.document, filepath, workers=2, progress_callback=progress_callback)
                             else:
                                 path = await client.download_media(message, file=folder_name, progress_callback=progress_callback)
                             break  # success - exit retry loop
