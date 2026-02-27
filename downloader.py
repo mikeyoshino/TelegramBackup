@@ -347,7 +347,14 @@ async def main():
                     path = None
                     for attempt in range(max_retries):
                         try:
-                            if FAST_DOWNLOAD_AVAILABLE and isinstance(message.media, MessageMediaDocument):
+                            # Only use FastTelethon for large files (>20MB)
+                            # Small files use the standard downloader which has no invalid limit issues
+                            use_fast = (
+                                FAST_DOWNLOAD_AVAILABLE
+                                and isinstance(message.media, MessageMediaDocument)
+                                and file_size > 20 * 1024 * 1024  # >20MB
+                            )
+                            if use_fast:
                                 doc = message.media.document
                                 original_filename = None
                                 if hasattr(doc, 'attributes'):

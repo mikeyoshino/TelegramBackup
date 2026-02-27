@@ -19,7 +19,7 @@ from telethon.tl.types import (
     InputPhotoFileLocation, Photo, TypeInputFileLocation
 )
 
-DEFAULT_PART_SIZE = 1024 * 1024  # 1MB chunks (required by Telegram for large files)
+DEFAULT_PART_SIZE = 512 * 1024  # 512KB chunks
 WORKER_COUNT = 16  # Number of parallel connections (increased for Premium speeds)
 
 
