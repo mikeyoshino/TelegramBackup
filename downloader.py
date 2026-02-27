@@ -33,8 +33,8 @@ START_FROM_MESSAGE_ID = 1
 
 # --- DESTINATION SETTINGS ---
 UPLOAD_TO_DESTINATION = True
-DEST_CHANNEL_LINK = 'https://t.me/c/123456789' # REPLACE THIS with your destination channel link
-DEST_TOPIC_ID = None # Set to topic number if uploading to a specific topic
+DEST_CHANNEL_LINK = 'https://t.me/c/3863897481' # REPLACE THIS with your destination channel link
+DEST_TOPIC_ID = 2 # Set to topic number if uploading to a specific topic
 DELETE_AFTER_UPLOAD = True # Delete downloaded folders after uploading
 
 # --- FILTER OPTIONS ---
@@ -46,7 +46,7 @@ DOWNLOAD_DOCUMENTS = False
 DOWNLOAD_DIR = 'downloads'
 
 # Limit for testing
-GROUP_LIMIT = 20000  
+GROUP_LIMIT = 1  
 
 # Parallel downloads
 PARALLEL_DOWNLOADS = 5
