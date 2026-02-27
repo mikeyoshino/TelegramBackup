@@ -53,7 +53,7 @@ PARALLEL_DOWNLOADS = 4
 
 # Parallel uploads - how many groups/albums to upload simultaneously
 # Keep this at 3 or lower to avoid Telegram flood errors
-PARALLEL_UPLOADS = 2
+PARALLEL_UPLOADS = 4
 
 # --- CHUNK SETTINGS ---
 CHUNK_SIZE = 100  # Download and upload this many messages/albums at a time
@@ -343,34 +343,54 @@ async def main():
                             print(f"  [{worker_id}] {percent:.0f}% ({mb_current:.1f}/{mb_total:.1f}MB)")
                             last_update[0] = now
                     
-                    if FAST_DOWNLOAD_AVAILABLE and isinstance(message.media, MessageMediaDocument):
-                        doc = message.media.document
-                        original_filename = None
-                        if hasattr(doc, 'attributes'):
-                            from telethon.tl.types import DocumentAttributeFilename
-                            for attr in doc.attributes:
-                                if isinstance(attr, DocumentAttributeFilename):
-                                    original_filename = attr.file_name
-                                    break
-                        if not original_filename:
-                            mime = getattr(doc, 'mime_type', '')
-                            ext_map = {'video/mp4': '.mp4', 'image/jpeg': '.jpg', 'image/png': '.png', 'audio/mpeg': '.mp3', 'application/pdf': '.pdf'}
-                            file_ext = ext_map.get(mime, '.bin')
-                            original_filename = f"{message.id}{file_ext}"
-                        
-                        filepath = os.path.join(folder_name, original_filename)
-                        path = await fast_download(client, message.media.document, filepath, workers=8, progress_callback=progress_callback)
-                    else:
-                        path = await client.download_media(message, file=folder_name, progress_callback=progress_callback)
+                    max_retries = 5
+                    path = None
+                    for attempt in range(max_retries):
+                        try:
+                            if FAST_DOWNLOAD_AVAILABLE and isinstance(message.media, MessageMediaDocument):
+                                doc = message.media.document
+                                original_filename = None
+                                if hasattr(doc, 'attributes'):
+                                    from telethon.tl.types import DocumentAttributeFilename
+                                    for attr in doc.attributes:
+                                        if isinstance(attr, DocumentAttributeFilename):
+                                            original_filename = attr.file_name
+                                            break
+                                if not original_filename:
+                                    mime = getattr(doc, 'mime_type', '')
+                                    ext_map = {'video/mp4': '.mp4', 'image/jpeg': '.jpg', 'image/png': '.png', 'audio/mpeg': '.mp3', 'application/pdf': '.pdf'}
+                                    file_ext = ext_map.get(mime, '.bin')
+                                    original_filename = f"{message.id}{file_ext}"
+                                
+                                filepath = os.path.join(folder_name, original_filename)
+                                path = await fast_download(client, message.media.document, filepath, workers=4, progress_callback=progress_callback)
+                            else:
+                                path = await client.download_media(message, file=folder_name, progress_callback=progress_callback)
+                            break  # success - exit retry loop
+                        except Exception as e:
+                            err = str(e)
+                            is_reset = "104" in err or "64" in err or "connection" in err.lower() or "reset" in err.lower()
+                            is_flood = "429" in err or "flood" in err.lower()
+                            if attempt < max_retries - 1:
+                                if is_flood:
+                                    wait = 30
+                                elif is_reset:
+                                    wait = 10 * (attempt + 1)  # 10s, 20s, 30s, 40s
+                                else:
+                                    wait = 5
+                                print(f"  [{worker_id}] ⚠️ Error (attempt {attempt+1}/{max_retries}): {e} — retrying in {wait}s...")
+                                await asyncio.sleep(wait)
+                            else:
+                                print(f"  [{worker_id}] ✗ FAILED after {max_retries} attempts: {e}")
                     
                     if path:
                         print(f"  [{worker_id}] ✓ {os.path.basename(path)} - DONE!")
                         async with download_lock:
                             total_size_downloaded += file_size
                             total_download_count += 1
-                        await asyncio.sleep(2.0)
+                        await asyncio.sleep(1.0)
                     else:
-                        print(f"  [{worker_id}] ✗ FAILED")
+                        print(f"  [{worker_id}] ✗ FAILED (no path returned)")
                 except Exception as e:
                     if "429" in str(e) or "flood" in str(e).lower():
                         await asyncio.sleep(10)
