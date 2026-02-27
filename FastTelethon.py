@@ -19,7 +19,7 @@ from telethon.tl.types import (
     InputPhotoFileLocation, Photo, TypeInputFileLocation
 )
 
-DEFAULT_PART_SIZE = 512 * 1024  # 512KB chunks
+DEFAULT_PART_SIZE = 1024 * 1024  # 1MB chunks (required by Telegram for large files)
 WORKER_COUNT = 16  # Number of parallel connections (increased for Premium speeds)
 
 
@@ -86,11 +86,10 @@ async def download_file(
         async def download_part(part_index: int) -> None:
             """Download a single part of the file."""
             offset = part_index * part_size
-            remaining = size - offset
-            # Telegram requires limit to be a multiple of 4096, max 1MB
-            # Round up to nearest 4096 so the last chunk is always valid
-            raw_limit = min(part_size, remaining)
-            limit = min(((raw_limit + 4095) // 4096) * 4096, part_size)
+            # Always use the full part_size as the limit.
+            # Telegram returns fewer bytes for the last chunk automatically.
+            # Passing remaining bytes as limit causes "invalid limit" errors.
+            limit = part_size
             
             retry_count = 0
             max_retries = 3
