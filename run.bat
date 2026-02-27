@@ -1,0 +1,6 @@
+@echo off
+echo Installing requirements...
+"C:\Program Files\Python311\python.exe" -m pip install -r requirements.txt
+echo Running Downloader...
+"C:\Program Files\Python311\python.exe" downloader.py
+pause
