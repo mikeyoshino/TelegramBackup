@@ -51,6 +51,10 @@ GROUP_LIMIT = 1
 # Parallel downloads
 PARALLEL_DOWNLOADS = 5
 
+# Parallel uploads - how many groups/albums to upload simultaneously
+# Keep this at 3 or lower to avoid Telegram flood errors
+PARALLEL_UPLOADS = 3
+
 # --- CHUNK SETTINGS ---
 CHUNK_SIZE = 100  # Download and upload this many messages/albums at a time
 
@@ -95,7 +99,13 @@ def get_peer_id(link):
     return (link, None, None)
 
 async def upload_chunk(client, dest_entity, dest_topic_id, ordered_groups, group_folders, group_captions):
-    """Handles the uploading of a chunk of downloaded folders."""
+    """
+    Handles uploading a chunk of downloaded folders.
+    
+    2-phase strategy for parallel speed + correct message order:
+      Phase 1 (Parallel): Pre-upload all file bytes to Telegram servers simultaneously
+      Phase 2 (Sequential): Send messages in correct order using pre-uploaded references
+    """
     if not dest_entity:
         return
         
@@ -103,49 +113,92 @@ async def upload_chunk(client, dest_entity, dest_topic_id, ordered_groups, group
     print(f"UPLOAD PHASE: Processing chunk of {len(ordered_groups)} items...")
     print("="*60)
     
+    # Build list of (group_id, files, caption) to process
+    groups_to_upload = []
     for group_id in ordered_groups:
         folder = group_folders[group_id]
         caption = group_captions.get(group_id, "")
         
         if not os.path.exists(folder):
             continue
-            
-        files = [os.path.join(folder, f) for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f))]
-        
+        files = sorted([os.path.join(folder, f) for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f))])
         if not files:
             continue
-            
-        print(f"\n[UPLOAD] Uploading group {group_id} ({len(files)} files)...")
+        groups_to_upload.append((group_id, files, caption, folder))
+    
+    # ---------------------------------------------------------------
+    # PHASE 1: Pre-upload all file bytes in parallel
+    # ---------------------------------------------------------------
+    print(f"\n[PHASE 1] Pre-uploading {len(groups_to_upload)} groups in parallel (PARALLEL_UPLOADS={PARALLEL_UPLOADS})...")
+    
+    semaphore = asyncio.Semaphore(PARALLEL_UPLOADS)
+    # uploaded_refs[group_id] = list of InputFile references
+    uploaded_refs = {}
+    
+    async def pre_upload_group(group_id, files, caption, folder):
+        """Pre-upload all files for a group to Telegram's servers."""
+        async with semaphore:
+            print(f"  [PRE-UPLOAD] Group {group_id} ({len(files)} files)...")
+            try:
+                refs = []
+                for filepath in files:
+                    size_mb = os.path.getsize(filepath) / (1024 * 1024)
+                    print(f"    → Uploading {os.path.basename(filepath)} ({size_mb:.1f}MB)...")
+                    ref = await client.upload_file(filepath)
+                    refs.append((ref, filepath))
+                uploaded_refs[group_id] = refs
+                print(f"  [PRE-UPLOAD] ✓ Group {group_id} ready to send!")
+            except Exception as e:
+                print(f"  [PRE-UPLOAD] ✗ Group {group_id} failed: {e}")
+                uploaded_refs[group_id] = None
+    
+    tasks = [pre_upload_group(gid, files, caption, folder) for gid, files, caption, folder in groups_to_upload]
+    await asyncio.gather(*tasks)
+    
+    # ---------------------------------------------------------------
+    # PHASE 2: Send messages sequentially to preserve order
+    # ---------------------------------------------------------------
+    print(f"\n[PHASE 2] Sending messages in order...")
+    
+    for group_id, files, caption, folder in groups_to_upload:
+        refs = uploaded_refs.get(group_id)
+        if not refs:
+            print(f"  [SEND] ✗ Skipping group {group_id} (pre-upload failed)")
+            continue
+        
+        preview = (caption[:50] + "...") if len(caption) > 50 else caption
+        print(f"\n  [SEND] Group {group_id} ({len(refs)} files)...")
         if caption:
-            preview = caption[:50] + "..." if len(caption) > 50 else caption
             print(f"         Caption: '{preview}'")
-            
+        
         try:
+            file_refs = [r for r, _ in refs]
             await client.send_file(
                 entity=dest_entity,
-                file=files,
+                file=file_refs,
                 caption=caption,
                 reply_to=dest_topic_id
             )
-            print(f"  ✓ Upload successful!")
+            print(f"  [SEND] ✓ Sent successfully!")
             
             if DELETE_AFTER_UPLOAD:
                 try:
                     shutil.rmtree(folder)
-                    print(f"  ✓ Cleaned up local folder {folder}")
+                    print(f"  [SEND] ✓ Cleaned up {folder}")
                 except Exception as e:
-                    print(f"  ✗ Could not delete folder {folder}: {e}")
+                    print(f"  [SEND] ✗ Could not delete {folder}: {e}")
                     
         except Exception as e:
-            print(f"  ✗ Upload failed for group {group_id}: {e}")
+            print(f"  [SEND] ✗ Failed for group {group_id}: {e}")
             if "429" in str(e) or "flood" in str(e).lower():
-                print("  ⚠️ FLOOD ERROR - Pausing upload for 20s...")
+                print("  ⚠️ FLOOD ERROR - Pausing 20s...")
                 await asyncio.sleep(20)
-            if "timeout" in str(e).lower():
-                print("  ⚠️ TIMEOUT ERROR - Pausing upload for 5s...")
+            elif "timeout" in str(e).lower():
+                print("  ⚠️ TIMEOUT - Pausing 5s...")
                 await asyncio.sleep(5)
                 
     print("\n[CHUNK COMPLETE] Upload phase finished for current batch.")
+
 
 async def main():
     print("Connecting to Telegram...")
