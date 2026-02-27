@@ -79,8 +79,9 @@ async def download_file(
     with open(file_name, 'wb') as f:
         f.truncate(size)
     
-    # Open file for parallel writes
-    file_handle = os.open(file_name, os.O_RDWR | os.O_BINARY if os.name == 'nt' else os.O_RDWR)
+    # Open file for parallel writes using a regular file handle (cross-platform)
+    file_obj = open(file_name, 'r+b')
+    write_lock = asyncio.Lock()  # Needed because seek+write is not atomic
     
     try:
         async def download_part(part_index: int) -> None:
@@ -102,8 +103,11 @@ async def download_file(
                         limit=limit
                     ))
                     
-                    # Write directly at offset using os.pwrite (faster than seeking)
-                    os.pwrite(file_handle, result.bytes, offset)
+                    # Write at the correct offset (seek+write with lock for thread-safety)
+                    async with lock:
+                        async with write_lock:
+                            file_obj.seek(offset)
+                            file_obj.write(result.bytes)
                     
                     # Update progress
                     async with lock:
@@ -133,6 +137,6 @@ async def download_file(
         
     finally:
         # Always close the file handle
-        os.close(file_handle)
+        file_obj.close()
     
     return file_name
