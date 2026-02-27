@@ -49,7 +49,7 @@ DOWNLOAD_DIR = 'downloads'
 GROUP_LIMIT = 1000000000
 
 # Parallel downloads
-PARALLEL_DOWNLOADS = 2
+PARALLEL_DOWNLOADS = 4
 
 # Parallel uploads - how many groups/albums to upload simultaneously
 # Keep this at 3 or lower to avoid Telegram flood errors
