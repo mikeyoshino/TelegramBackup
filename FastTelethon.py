@@ -13,9 +13,7 @@ from typing import AsyncGenerator, Optional, Union
 
 from telethon import TelegramClient, utils
 from telethon.crypto import AuthKey
-from telethon.tl.functions.upload import (
-    GetFileRequest, GetFileHashesRequest, GetFileHasesRequest
-)
+from telethon.tl.functions.upload import GetFileRequest
 from telethon.tl.types import (
     Document, InputDocumentFileLocation, InputFileLocation,
     InputPhotoFileLocation, Photo, TypeInputFileLocation
