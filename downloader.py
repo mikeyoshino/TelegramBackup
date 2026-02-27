@@ -46,14 +46,14 @@ DOWNLOAD_DOCUMENTS = False
 DOWNLOAD_DIR = 'downloads'
 
 # Limit for testing
-GROUP_LIMIT = 10000000000
+GROUP_LIMIT = 1000000000
 
 # Parallel downloads
-PARALLEL_DOWNLOADS = 10
+PARALLEL_DOWNLOADS = 5
 
 # Parallel uploads - how many groups/albums to upload simultaneously
 # Keep this at 3 or lower to avoid Telegram flood errors
-PARALLEL_UPLOADS = 10
+PARALLEL_UPLOADS = 3
 
 # --- CHUNK SETTINGS ---
 CHUNK_SIZE = 100  # Download and upload this many messages/albums at a time

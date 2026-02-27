@@ -49,6 +49,48 @@ chmod +x setup.sh run.sh
 ./run.sh
 ```
 
+## Running in the Background (Ubuntu)
+
+When you close your SSH terminal, any running process will be killed unless you detach it first.
+
+### Option 1: `nohup` (simple)
+
+```bash
+nohup ./run.sh > output.log 2>&1 &
+echo "Started! PID: $!"
+```
+
+- All output is saved to `output.log`
+- Watch live progress: `tail -f output.log`
+- Find and stop the process:
+  ```bash
+  ps aux | grep downloader.py
+  kill <PID>
+  ```
+
+### Option 2: `screen` (recommended — reattach anytime)
+
+```bash
+# Install if needed
+sudo apt install screen
+
+# Start a named session
+screen -S telegram
+
+# Run the script normally inside screen
+./run.sh
+
+# Detach and leave it running: press Ctrl+A then D
+
+# Reattach later to check progress
+screen -r telegram
+
+# List all active sessions
+screen -ls
+```
+
+---
+
 ## Requirements
 - Python 3.8+
 - A Telegram account with API credentials from [my.telegram.org](https://my.telegram.org)
