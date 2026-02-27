@@ -56,7 +56,7 @@ PARALLEL_DOWNLOADS = 4
 PARALLEL_UPLOADS = 4
 
 # --- CHUNK SETTINGS ---
-CHUNK_SIZE = 100  # Download and upload this many messages/albums at a time
+CHUNK_SIZE = 50  # Download and upload this many messages/albums at a time
 
 # Delay between each sequential send in Phase 2 (seconds)
 # Helps avoid connection resets when Telegram gets too many rapid requests
