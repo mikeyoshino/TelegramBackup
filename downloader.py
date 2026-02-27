@@ -28,13 +28,13 @@ API_HASH = 'b28bafb4abe937cff6ea973970421d96'
 
 # --- SOURCE SETTINGS ---
 CHANNEL_LINK = 'https://t.me/c/2298649486'
-TOPIC_ID = 1
+TOPIC_ID = 49114
 START_FROM_MESSAGE_ID = 1  
 
 # --- DESTINATION SETTINGS ---
 UPLOAD_TO_DESTINATION = True
 DEST_CHANNEL_LINK = 'https://t.me/c/3863897481' # REPLACE THIS with your destination channel link
-DEST_TOPIC_ID = 2 # Set to topic number if uploading to a specific topic
+DEST_TOPIC_ID = 7 # Set to topic number if uploading to a specific topic
 DELETE_AFTER_UPLOAD = True # Delete downloaded folders after uploading
 
 # --- FILTER OPTIONS ---
@@ -46,14 +46,14 @@ DOWNLOAD_DOCUMENTS = False
 DOWNLOAD_DIR = 'downloads'
 
 # Limit for testing
-GROUP_LIMIT = 1000000000
+GROUP_LIMIT = 20
 
 # Parallel downloads
-PARALLEL_DOWNLOADS = 4
+PARALLEL_DOWNLOADS = 5
 
 # Parallel uploads - how many groups/albums to upload simultaneously
 # Keep this at 3 or lower to avoid Telegram flood errors
-PARALLEL_UPLOADS = 4
+PARALLEL_UPLOADS = 5
 
 # --- CHUNK SETTINGS ---
 CHUNK_SIZE = 50  # Download and upload this many messages/albums at a time
@@ -140,41 +140,49 @@ async def upload_chunk(client, dest_entity, dest_topic_id, ordered_groups, group
     uploaded_refs = {}
     
     async def pre_upload_group(group_id, files, caption, folder):
-        """Pre-upload all files for a group to Telegram's servers (with retry)."""
+        """Pre-upload all files for a group to Telegram's servers (parallel, with retry)."""
         async with semaphore:
             print(f"  [PRE-UPLOAD] Group {group_id} ({len(files)} files)...")
-            refs = []
-            for filepath in files:
+            
+            # Refs stored by index to preserve file order
+            refs_by_index = {}
+            
+            async def upload_one(index, filepath):
                 size_mb = os.path.getsize(filepath) / (1024 * 1024)
                 print(f"    → Uploading {os.path.basename(filepath)} ({size_mb:.1f}MB)...")
-                
-                # Retry loop with exponential backoff for connection resets
                 max_retries = 5
                 for attempt in range(max_retries):
                     try:
                         ref = await client.upload_file(filepath)
-                        refs.append((ref, filepath))
-                        break  # success
+                        refs_by_index[index] = (ref, filepath)
+                        return
                     except Exception as e:
                         err = str(e)
                         is_connection_reset = "104" in err or "connection reset" in err.lower() or "connection" in err.lower()
                         is_flood = "429" in err or "flood" in err.lower()
-                        
                         if attempt < max_retries - 1:
                             if is_flood:
                                 wait = 30
                             elif is_connection_reset:
-                                wait = 5 * (attempt + 1)  # 5s, 10s, 15s, 20s
+                                wait = 5 * (attempt + 1)
                             else:
                                 wait = 3
                             print(f"    ⚠️ Upload failed (attempt {attempt+1}/{max_retries}): {e} — retrying in {wait}s...")
                             await asyncio.sleep(wait)
                         else:
                             print(f"    ✗ Upload failed after {max_retries} attempts: {e}")
-                            uploaded_refs[group_id] = None
-                            return
+                            refs_by_index[index] = None
             
-            uploaded_refs[group_id] = refs
+            # Upload all files in this group in parallel
+            await asyncio.gather(*[upload_one(i, fp) for i, fp in enumerate(files)])
+            
+            # Check if any file failed
+            if any(refs_by_index.get(i) is None for i in range(len(files))):
+                uploaded_refs[group_id] = None
+                return
+            
+            # Reassemble in original order
+            uploaded_refs[group_id] = [refs_by_index[i] for i in range(len(files))]
             print(f"  [PRE-UPLOAD] ✓ Group {group_id} ready to send!")
     
     tasks = [pre_upload_group(gid, files, caption, folder) for gid, files, caption, folder in groups_to_upload]
