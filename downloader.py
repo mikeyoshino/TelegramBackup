@@ -28,13 +28,13 @@ API_HASH = 'b28bafb4abe937cff6ea973970421d96'
 
 # --- SOURCE SETTINGS ---
 CHANNEL_LINK = 'https://t.me/c/2298649486'
-TOPIC_ID = 1
+TOPIC_ID = 49114
 START_FROM_MESSAGE_ID = 1  
 
 # --- DESTINATION SETTINGS ---
 UPLOAD_TO_DESTINATION = True
 DEST_CHANNEL_LINK = 'https://t.me/c/3863897481' # REPLACE THIS with your destination channel link
-DEST_TOPIC_ID = 2 # Set to topic number if uploading to a specific topic
+DEST_TOPIC_ID = 8780 # Set to topic number if uploading to a specific topic
 DELETE_AFTER_UPLOAD = True # Delete downloaded folders after uploading
 
 # --- FILTER OPTIONS ---
@@ -498,6 +498,15 @@ async def main():
                     message_group_id = message.grouped_id if message.grouped_id else message.id
                     is_new_group = message_group_id not in unique_message_groups
                     
+                    if is_new_group and GROUP_LIMIT and total_groups_processed >= GROUP_LIMIT:
+                        print(f"\n✓ Reached limit of {GROUP_LIMIT} messages/albums!")
+                        break
+                        
+                    # Process the complete chunk BEFORE adding the new group's items
+                    if is_new_group and len(unique_message_groups) >= CHUNK_SIZE:
+                        await process_current_chunk()
+                        is_new_group = True
+                        
                     if is_new_group:
                         unique_message_groups.add(message_group_id)
                         ordered_groups.append(message_group_id)
@@ -520,14 +529,6 @@ async def main():
                                 group_captions[message_group_id] += f"\n{message.text}"
                                 
                     messages_to_download.append((message, media_type, file_size, folder_name))
-                    
-                    # If we've reached the chunk size, process the chunk
-                    if is_new_group and len(unique_message_groups) >= CHUNK_SIZE:
-                        await process_current_chunk()
-                        
-                    if GROUP_LIMIT and total_groups_processed >= GROUP_LIMIT:
-                        print(f"\n✓ Reached limit of {GROUP_LIMIT} messages/albums!")
-                        break
 
         # Process any remaining messages in the final, partial chunk
         if messages_to_download:

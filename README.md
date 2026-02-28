@@ -67,7 +67,7 @@ echo "Started! PID: $!"
   ps aux | grep downloader.py
   kill <PID>
   ```
-
+tail -f output.log
 ### Option 2: `screen` (recommended — reattach anytime)
 
 ```bash
